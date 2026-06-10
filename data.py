@@ -3,15 +3,12 @@ import pandas as pd
 from datetime import datetime, timedelta
 import streamlit as st
 
-WINDSOR_BASE = "https://connectors.windsor.ai/api/fields"
-
-
+WINDSOR_BASE = "https://connectors.windsor.ai/instagram"
 ACCOUNT_ID = "17841403068369487"
 
 
 def _fetch(api_key: str, fields: list[str], extra_params: dict = None) -> pd.DataFrame:
     params = {
-        "datasource": "instagram",
         "api_key": api_key,
         "account_id": ACCOUNT_ID,
         "fields": ",".join(fields),
