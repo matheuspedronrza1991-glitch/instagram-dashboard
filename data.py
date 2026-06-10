@@ -4,6 +4,8 @@ from datetime import datetime, timedelta
 import streamlit as st
 
 WINDSOR_BASE = "https://connectors.windsor.ai/api/fields"
+
+
 ACCOUNT_ID = "17841403068369487"
 
 
@@ -11,8 +13,8 @@ def _fetch(api_key: str, fields: list[str], extra_params: dict = None) -> pd.Dat
     params = {
         "datasource": "instagram",
         "api_key": api_key,
-        "fields": ",".join(fields),
         "account_id": ACCOUNT_ID,
+        "fields": ",".join(fields),
     }
     if extra_params:
         params.update(extra_params)
