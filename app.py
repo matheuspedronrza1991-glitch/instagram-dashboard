@@ -436,7 +436,7 @@ with tab7:
     else:
         modo_viral = st.radio(
             "Como você quer pesquisar?",
-            ["🔎 Por tema", "🎬 Por vídeo (colar link)"],
+            ["🔎 Por tema", "🎬 Por vídeo (colar link)", "📁 Upload de MP4"],
             horizontal=True,
             key="modo_viral",
         )
@@ -501,7 +501,7 @@ with tab7:
                 st.markdown(st.session_state["viral_analise"])
 
         # ── MODO 2: por vídeo (link) ──────────────────────────────
-        else:
+        elif modo_viral == "🎬 Por vídeo (colar link)":
             st.markdown("Cole o link de um vídeo que você achou interessante e a IA vai decifrar por que viralizou e criar versões para @lesganzerlla.")
             video_url = st.text_input(
                 "Link do vídeo",
@@ -578,6 +578,111 @@ Responda em português, seja específico e prático."""
                 st.success("Análise completa!")
                 st.caption(f"Vídeo analisado: {st.session_state.get('viral_url_usado','')}")
                 st.markdown(st.session_state["viral_url_analise"])
+
+        # ── MODO 3: upload MP4 ────────────────────────────────────
+        else:
+            st.markdown("Faça upload de um vídeo MP4 que você achou interessante — a IA extrai frames e analisa o conteúdo visualmente.")
+
+            mp4_file = st.file_uploader(
+                "Selecione o vídeo MP4",
+                type=["mp4", "mov", "avi"],
+                key="mp4_uploader",
+            )
+
+            n_frames = st.slider("Quantos frames analisar", min_value=3, max_value=8, value=5,
+                                 help="Mais frames = análise mais detalhada, porém mais lenta")
+
+            if st.button("🔬 Analisar vídeo e criar ideias", type="primary", use_container_width=True, key="btn_viral_mp4"):
+                if mp4_file is None:
+                    st.warning("Faça upload de um vídeo MP4 primeiro.")
+                else:
+                    import tempfile, os, base64, math
+                    import cv2
+
+                    with st.spinner("Extraindo frames e acionando especialista de marketing..."):
+                        try:
+                            # Salva o upload em arquivo temporário
+                            with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp:
+                                tmp.write(mp4_file.read())
+                                tmp_path = tmp.name
+
+                            # Extrai frames distribuídos ao longo do vídeo
+                            cap = cv2.VideoCapture(tmp_path)
+                            total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+                            fps = cap.get(cv2.CAP_PROP_FPS) or 30
+                            duration_s = total_frames / fps
+
+                            indices = [int(total_frames * i / (n_frames - 1)) for i in range(n_frames)]
+                            indices = [min(idx, total_frames - 1) for idx in indices]
+
+                            frames_b64 = []
+                            for idx in indices:
+                                cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
+                                ret, frame = cap.read()
+                                if not ret:
+                                    continue
+                                # Reduz resolução para economizar tokens
+                                h, w = frame.shape[:2]
+                                if w > 720:
+                                    frame = cv2.resize(frame, (720, int(h * 720 / w)))
+                                _, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 75])
+                                frames_b64.append(base64.b64encode(buf).decode())
+                            cap.release()
+                            os.unlink(tmp_path)
+
+                            # Monta mensagem multi-imagem para Claude Vision
+                            content = []
+                            for i, b64 in enumerate(frames_b64):
+                                ts = duration_s * i / max(len(frames_b64) - 1, 1)
+                                content.append({"type": "text", "text": f"Frame {i+1} (aprox. {ts:.1f}s):"})
+                                content.append({
+                                    "type": "image",
+                                    "source": {"type": "base64", "media_type": "image/jpeg", "data": b64},
+                                })
+
+                            content.append({"type": "text", "text": f"""Você é uma Estrategista Sênior de Marketing Digital especializada em conteúdo viral para Instagram no nicho de saúde e emagrecimento no Brasil.
+
+Analise os {len(frames_b64)} frames acima extraídos de um vídeo que o usuário considerou interessante/viral. O vídeo tem {duration_s:.0f} segundos.
+
+Entregue:
+
+## 1. O que é esse vídeo
+- Descreva o conteúdo, cenário, pessoa/personagem, texto na tela
+- Formato identificado (depoimento, tutorial, antes/depois, rotina, tendência, etc.)
+
+## 2. Por que esse conteúdo viraliza
+- Mecanismo psicológico (curiosidade, esperança, transformação, pertencimento...)
+- Gatilhos visuais e de edição identificados
+- Estrutura narrativa (gancho → desenvolvimento → CTA)
+
+## 3. 5 Reels inspirados nesse vídeo para @lesganzerlla
+Para cada Reel (clínica de emagrecimento e estética em Ampére-PR):
+- **Título**
+- **Gancho (primeiros 3 segundos)**: texto exato que abre o vídeo
+- **Roteiro**: o que mostrar/falar em cada parte
+- **CTA final**
+- **Hashtags**: 8-10 estratégicas
+
+## 4. Dica de produção
+Como replicar o estilo com celular + recursos da clínica.
+
+Responda em português, seja específico e prático."""})
+
+                            import anthropic as anth
+                            client = anth.Anthropic(api_key=anthropic_key)
+                            msg = client.messages.create(
+                                model="claude-sonnet-4-6",
+                                max_tokens=3000,
+                                messages=[{"role": "user", "content": content}],
+                            )
+                            st.session_state["viral_mp4_analise"] = msg.content[0].text
+                            st.session_state["viral_mp4_nome"] = mp4_file.name
+                        except Exception as e:
+                            st.error(f"Erro ao processar vídeo: {e}")
+
+            if "viral_mp4_analise" in st.session_state:
+                st.success(f"Análise completa! Vídeo: {st.session_state.get('viral_mp4_nome','')}")
+                st.markdown(st.session_state["viral_mp4_analise"])
 
 
 # ══════════════════════════════════════════════════════════════════
