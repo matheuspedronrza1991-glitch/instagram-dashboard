@@ -581,7 +581,7 @@ Responda em português, seja específico e prático."""
 
         # ── MODO 3: upload MP4 ────────────────────────────────────
         else:
-            st.markdown("Faça upload de um vídeo MP4 que você achou interessante — a IA extrai frames e analisa o conteúdo visualmente.")
+            st.markdown("Faça upload de um vídeo MP4 — a IA analisa visualmente, identifica o tema e busca conteúdo similar no Instagram, TikTok e YouTube.")
 
             mp4_file = st.file_uploader(
                 "Selecione o vídeo MP4",
@@ -592,26 +592,26 @@ Responda em português, seja específico e prático."""
             n_frames = st.slider("Quantos frames analisar", min_value=3, max_value=8, value=5,
                                  help="Mais frames = análise mais detalhada, porém mais lenta")
 
-            if st.button("🔬 Analisar vídeo e criar ideias", type="primary", use_container_width=True, key="btn_viral_mp4"):
+            if st.button("🔬 Analisar vídeo + buscar similares", type="primary", use_container_width=True, key="btn_viral_mp4"):
                 if mp4_file is None:
                     st.warning("Faça upload de um vídeo MP4 primeiro.")
                 else:
-                    import tempfile, os, base64, math
+                    import tempfile, os, base64
                     import cv2
+                    import anthropic as anth
+                    from duckduckgo_search import DDGS
 
-                    with st.spinner("Extraindo frames e acionando especialista de marketing..."):
-                        try:
-                            # Salva o upload em arquivo temporário
+                    try:
+                        # ── PASSO 1: extrair frames ───────────────
+                        with st.status("📽️ Extraindo frames do vídeo...", expanded=True) as status:
                             with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp:
                                 tmp.write(mp4_file.read())
                                 tmp_path = tmp.name
 
-                            # Extrai frames distribuídos ao longo do vídeo
                             cap = cv2.VideoCapture(tmp_path)
                             total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
                             fps = cap.get(cv2.CAP_PROP_FPS) or 30
                             duration_s = total_frames / fps
-
                             indices = [int(total_frames * i / (n_frames - 1)) for i in range(n_frames)]
                             indices = [min(idx, total_frames - 1) for idx in indices]
 
@@ -621,7 +621,6 @@ Responda em português, seja específico e prático."""
                                 ret, frame = cap.read()
                                 if not ret:
                                     continue
-                                # Reduz resolução para economizar tokens
                                 h, w = frame.shape[:2]
                                 if w > 720:
                                     frame = cv2.resize(frame, (720, int(h * 720 / w)))
@@ -629,56 +628,115 @@ Responda em português, seja específico e prático."""
                                 frames_b64.append(base64.b64encode(buf).decode())
                             cap.release()
                             os.unlink(tmp_path)
+                            status.update(label=f"✅ {len(frames_b64)} frames extraídos ({duration_s:.0f}s de vídeo)")
 
-                            # Monta mensagem multi-imagem para Claude Vision
-                            content = []
+                        # ── PASSO 2: Claude Vision identifica o tema ──
+                        with st.status("🔍 Claude analisando o conteúdo do vídeo...", expanded=True) as status:
+                            client = anth.Anthropic(api_key=anthropic_key)
+
+                            content_id = []
                             for i, b64 in enumerate(frames_b64):
                                 ts = duration_s * i / max(len(frames_b64) - 1, 1)
-                                content.append({"type": "text", "text": f"Frame {i+1} (aprox. {ts:.1f}s):"})
-                                content.append({
+                                content_id.append({"type": "text", "text": f"Frame {i+1} ({ts:.1f}s):"})
+                                content_id.append({
                                     "type": "image",
                                     "source": {"type": "base64", "media_type": "image/jpeg", "data": b64},
                                 })
+                            content_id.append({"type": "text", "text": """Analise esses frames de vídeo e responda APENAS com um JSON no formato:
+{"tema": "tema principal em 3-5 palavras", "formato": "tipo do vídeo", "nicho": "nicho de mercado", "palavras_chave": ["kw1", "kw2", "kw3", "kw4", "kw5"], "descricao": "descrição em 2 frases do que é o vídeo"}
+Nenhum texto além do JSON."""})
 
-                            content.append({"type": "text", "text": f"""Você é uma Estrategista Sênior de Marketing Digital especializada em conteúdo viral para Instagram no nicho de saúde e emagrecimento no Brasil.
+                            resp_id = client.messages.create(
+                                model="claude-sonnet-4-6",
+                                max_tokens=300,
+                                messages=[{"role": "user", "content": content_id}],
+                            )
+                            import json, re
+                            raw_json = resp_id.content[0].text.strip()
+                            raw_json = re.sub(r"```json|```", "", raw_json).strip()
+                            video_meta = json.loads(raw_json)
+                            tema_detectado = video_meta.get("tema", "emagrecimento")
+                            palavras_chave = video_meta.get("palavras_chave", [tema_detectado])
+                            status.update(label=f"✅ Tema identificado: **{tema_detectado}** · Formato: {video_meta.get('formato','')}")
 
-Analise os {len(frames_b64)} frames acima extraídos de um vídeo que o usuário considerou interessante/viral. O vídeo tem {duration_s:.0f} segundos.
+                        # ── PASSO 3: busca similares em outras redes ──
+                        with st.status("🌐 Buscando conteúdo similar no Instagram, TikTok e YouTube...", expanded=True) as status:
+                            ddgs = DDGS()
+                            kw = " ".join(palavras_chave[:3])
+                            queries = [
+                                f"{kw} reel instagram viral 2025",
+                                f"{kw} tiktok viral trend 2025",
+                                f"{kw} youtube shorts viral 2025",
+                                f"{tema_detectado} conteúdo criador viral brasil",
+                            ]
+                            similares = []
+                            for q in queries:
+                                res = list(ddgs.text(q, max_results=5))
+                                similares.extend(res)
+                            contexto_similares = "\n".join(
+                                f"[{r.get('source','')}] {r.get('title','')} — {r.get('body','')[:180]}"
+                                for r in similares[:18]
+                            )
+                            status.update(label=f"✅ {len(similares)} resultados similares encontrados")
 
-Entregue:
+                        # ── PASSO 4: análise final completa ──────────
+                        with st.status("🤖 Estrategista de marketing gerando análise completa...", expanded=True) as status:
+                            content_final = []
+                            for i, b64 in enumerate(frames_b64):
+                                ts = duration_s * i / max(len(frames_b64) - 1, 1)
+                                content_final.append({"type": "text", "text": f"Frame {i+1} ({ts:.1f}s):"})
+                                content_final.append({
+                                    "type": "image",
+                                    "source": {"type": "base64", "media_type": "image/jpeg", "data": b64},
+                                })
+                            content_final.append({"type": "text", "text": f"""Você é uma Estrategista Sênior de Marketing Digital especializada em conteúdo viral para Instagram no nicho de saúde e emagrecimento no Brasil.
 
-## 1. O que é esse vídeo
-- Descreva o conteúdo, cenário, pessoa/personagem, texto na tela
-- Formato identificado (depoimento, tutorial, antes/depois, rotina, tendência, etc.)
+O vídeo enviado tem {duration_s:.0f} segundos. Tema identificado: "{tema_detectado}". Formato: {video_meta.get('formato','')}. {video_meta.get('descricao','')}
 
-## 2. Por que esse conteúdo viraliza
-- Mecanismo psicológico (curiosidade, esperança, transformação, pertencimento...)
-- Gatilhos visuais e de edição identificados
+=== CONTEÚDO SIMILAR ENCONTRADO NO INSTAGRAM, TIKTOK E YOUTUBE ===
+{contexto_similares}
+
+Com base na análise visual do vídeo E no conteúdo similar encontrado nas outras redes, entregue:
+
+## 1. Análise do vídeo original
+- O que torna esse vídeo eficaz visualmente
+- Gatilhos de engajamento identificados nos frames
 - Estrutura narrativa (gancho → desenvolvimento → CTA)
 
-## 3. 5 Reels inspirados nesse vídeo para @lesganzerlla
+## 2. O que está viralizando de similar em outras redes
+- Padrões comuns entre o vídeo original e o conteúdo encontrado
+- Formatos dominantes (Reel curto, carrossel, depoimento, before/after...)
+- Por que esse tema está em alta AGORA
+
+## 3. Oportunidade para @lesganzerlla
+- Ângulo único que poucos exploram nesse nicho
+- Como a clínica pode entrar nessa tendência de forma autêntica
+
+## 4. 5 Reels prontos para produzir
 Para cada Reel (clínica de emagrecimento e estética em Ampére-PR):
 - **Título**
-- **Gancho (primeiros 3 segundos)**: texto exato que abre o vídeo
-- **Roteiro**: o que mostrar/falar em cada parte
+- **Gancho (primeiros 3 segundos)**: texto exato
+- **Roteiro**: o que mostrar/falar
 - **CTA final**
 - **Hashtags**: 8-10 estratégicas
 
-## 4. Dica de produção
-Como replicar o estilo com celular + recursos da clínica.
+## 5. Dica de produção
+Como replicar o estilo com celular + recursos simples da clínica.
 
 Responda em português, seja específico e prático."""})
 
-                            import anthropic as anth
-                            client = anth.Anthropic(api_key=anthropic_key)
-                            msg = client.messages.create(
+                            msg_final = client.messages.create(
                                 model="claude-sonnet-4-6",
-                                max_tokens=3000,
-                                messages=[{"role": "user", "content": content}],
+                                max_tokens=3500,
+                                messages=[{"role": "user", "content": content_final}],
                             )
-                            st.session_state["viral_mp4_analise"] = msg.content[0].text
+                            st.session_state["viral_mp4_analise"] = msg_final.content[0].text
                             st.session_state["viral_mp4_nome"] = mp4_file.name
-                        except Exception as e:
-                            st.error(f"Erro ao processar vídeo: {e}")
+                            st.session_state["viral_mp4_meta"] = video_meta
+                            status.update(label="✅ Análise completa!")
+
+                    except Exception as e:
+                        st.error(f"Erro ao processar vídeo: {e}")
 
             if "viral_mp4_analise" in st.session_state:
                 st.success(f"Análise completa! Vídeo: {st.session_state.get('viral_mp4_nome','')}")
