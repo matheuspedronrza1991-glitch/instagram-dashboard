@@ -125,13 +125,15 @@ with st.spinner("Carregando dados do Instagram..."):
 
 
 # ─── Tabs ─────────────────────────────────────────────────────────────────────
-tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
     "📊 Visão Geral",
     "📸 Conteúdo",
     "👥 Audiência",
     "📈 Tendências",
     "🤖 Insights IA",
     "💡 Ideias de Post",
+    "🔥 Virais",
+    "👀 Monitorar Perfis",
 ])
 
 
@@ -421,3 +423,280 @@ with tab6:
             if "caption_result" in st.session_state:
                 st.markdown("---")
                 st.markdown(st.session_state["caption_result"])
+
+
+# ══════════════════════════════════════════════════════════════════
+# TAB 7 — VIRAIS
+# ══════════════════════════════════════════════════════════════════
+with tab7:
+    st.markdown("## 🔥 Vídeos Virais no Instagram")
+    st.caption("Pesquisa em tempo real por Reels e vídeos em alta para o tema escolhido")
+
+    col_input, col_tipo, col_qtd = st.columns([3, 2, 1])
+    with col_input:
+        tema_viral = st.text_input(
+            "Tema",
+            placeholder="ex: emagrecimento, mounjaro, ozempic, pilates...",
+            key="tema_viral",
+        )
+    with col_tipo:
+        tipo_viral = st.selectbox(
+            "Tipo de conteúdo",
+            ["Reels Instagram", "Vídeos (todos)", "Notícias / Tendências"],
+            key="tipo_viral",
+        )
+    with col_qtd:
+        qtd_viral = st.number_input("Resultados", min_value=5, max_value=30, value=10, step=5)
+
+    buscar = st.button("🔍 Buscar virais", type="primary", use_container_width=False)
+
+    if buscar:
+        if not tema_viral.strip():
+            st.warning("Digite um tema para pesquisar.")
+        else:
+            from duckduckgo_search import DDGS
+
+            if tipo_viral == "Reels Instagram":
+                query = f"{tema_viral} reels instagram viral 2024 2025"
+            elif tipo_viral == "Vídeos (todos)":
+                query = f"{tema_viral} video viral instagram tiktok 2025"
+            else:
+                query = f"{tema_viral} instagram tendência viral"
+
+            with st.spinner(f'Buscando "{tema_viral}" em tempo real...'):
+                try:
+                    ddgs = DDGS()
+
+                    if tipo_viral in ("Reels Instagram", "Vídeos (todos)"):
+                        raw = list(ddgs.videos(query, max_results=int(qtd_viral)))
+                    else:
+                        raw = list(ddgs.text(query, max_results=int(qtd_viral)))
+
+                    st.session_state["viral_results"] = raw
+                    st.session_state["viral_tema"] = tema_viral
+                    st.session_state["viral_tipo"] = tipo_viral
+                except Exception as e:
+                    st.error(f"Erro na busca: {e}")
+
+    if "viral_results" in st.session_state and st.session_state["viral_results"]:
+        results = st.session_state["viral_results"]
+        tipo_res = st.session_state.get("viral_tipo", "")
+        st.markdown(f"### Resultados para **{st.session_state.get('viral_tema', '')}** — {len(results)} encontrados")
+        st.markdown("---")
+
+        is_video = tipo_res in ("Reels Instagram", "Vídeos (todos)")
+
+        for item in results:
+            with st.container():
+                if is_video:
+                    col_thumb, col_info = st.columns([1, 3])
+                    with col_thumb:
+                        thumb = item.get("thumbnails", [{}])
+                        thumb_url = thumb[0].get("url") if thumb else None
+                        if thumb_url:
+                            st.image(thumb_url, use_container_width=True)
+                        else:
+                            st.markdown("🎬")
+                    with col_info:
+                        title = item.get("title", "Sem título")
+                        desc = item.get("description", "")
+                        url = item.get("content", item.get("url", "#"))
+                        publisher = item.get("publisher", item.get("uploader", ""))
+                        duration = item.get("duration", "")
+                        views = item.get("statistics", {}).get("viewCount", "")
+
+                        st.markdown(f"**{title}**")
+                        if publisher:
+                            st.caption(f"📺 {publisher}" + (f"  ·  ⏱️ {duration}" if duration else "") + (f"  ·  👁️ {views} views" if views else ""))
+                        if desc:
+                            st.write(desc[:200] + ("..." if len(desc) > 200 else ""))
+                        if url and url != "#":
+                            st.markdown(f"[▶️ Abrir vídeo]({url})")
+                else:
+                    title = item.get("title", "Sem título")
+                    body = item.get("body", "")
+                    url = item.get("href", "#")
+                    source = item.get("source", "")
+
+                    st.markdown(f"**{title}**")
+                    if source:
+                        st.caption(f"🌐 {source}")
+                    if body:
+                        st.write(body[:250] + ("..." if len(body) > 250 else ""))
+                    if url and url != "#":
+                        st.markdown(f"[🔗 Ver mais]({url})")
+
+                st.markdown("---")
+
+        if anthropic_key:
+            if st.button("🤖 Claude analisa esses virais e sugere ideias", use_container_width=True):
+                resumo = "\n".join(
+                    f"- {item.get('title','')}: {item.get('description', item.get('body',''))[:120]}"
+                    for item in results[:10]
+                )
+                prompt = f"""Analise esses vídeos virais sobre "{st.session_state.get('viral_tema')}" que estão em alta no Instagram/TikTok:
+
+{resumo}
+
+Com base nisso, sugira 5 ideias de Reels para @lesganzerlla (clínica de emagrecimento em Ampére-PR) que possam viralizar. Para cada ideia: título chamativo, formato (reel/carrossel), gancho de abertura (primeiros 3 segundos) e hashtags. Responda em português."""
+
+                with st.spinner("Claude analisando os virais..."):
+                    try:
+                        import anthropic as anth
+                        client = anth.Anthropic(api_key=anthropic_key)
+                        msg = client.messages.create(
+                            model="claude-haiku-4-5-20251001",
+                            max_tokens=1200,
+                            messages=[{"role": "user", "content": prompt}],
+                        )
+                        st.session_state["viral_ai"] = msg.content[0].text
+                    except Exception as e:
+                        st.error(f"Erro: {e}")
+
+        if "viral_ai" in st.session_state:
+            st.markdown("### 🤖 Ideias geradas pelo Claude")
+            st.markdown(st.session_state["viral_ai"])
+
+
+# ══════════════════════════════════════════════════════════════════
+# TAB 8 — MONITORAR PERFIS
+# ══════════════════════════════════════════════════════════════════
+with tab8:
+    st.markdown("## 👀 Monitorar Perfis")
+    st.caption("Adicione até 10 perfis que você segue e veja o que está viralizando neles")
+
+    # Gerenciar lista de perfis
+    if "perfis_monitorados" not in st.session_state:
+        st.session_state["perfis_monitorados"] = []
+
+    with st.expander("➕ Gerenciar perfis monitorados", expanded=len(st.session_state["perfis_monitorados"]) == 0):
+        col_add, col_btn = st.columns([4, 1])
+        with col_add:
+            novo_perfil = st.text_input(
+                "Usuário do Instagram",
+                placeholder="ex: @drauziovarella ou drauziovarella",
+                key="novo_perfil_input",
+            )
+        with col_btn:
+            st.markdown("<br>", unsafe_allow_html=True)
+            if st.button("Adicionar", use_container_width=True):
+                handle = novo_perfil.strip().lstrip("@")
+                if handle and handle not in st.session_state["perfis_monitorados"]:
+                    if len(st.session_state["perfis_monitorados"]) >= 10:
+                        st.warning("Máximo de 10 perfis atingido. Remova um para adicionar.")
+                    else:
+                        st.session_state["perfis_monitorados"].append(handle)
+                        st.rerun()
+
+        if st.session_state["perfis_monitorados"]:
+            st.markdown("**Perfis salvos:**")
+            cols_perfis = st.columns(5)
+            for i, p in enumerate(st.session_state["perfis_monitorados"]):
+                with cols_perfis[i % 5]:
+                    if st.button(f"❌ @{p}", key=f"rm_{p}", use_container_width=True):
+                        st.session_state["perfis_monitorados"].remove(p)
+                        st.rerun()
+
+    if not st.session_state["perfis_monitorados"]:
+        st.info("Adicione pelo menos um perfil acima para começar o monitoramento.")
+    else:
+        st.markdown(f"**{len(st.session_state['perfis_monitorados'])} perfis monitorados:** " +
+                    " · ".join(f"@{p}" for p in st.session_state["perfis_monitorados"]))
+        st.markdown("")
+
+        col_perfil_sel, col_perfil_btn = st.columns([3, 1])
+        with col_perfil_sel:
+            perfil_escolhido = st.selectbox(
+                "Analisar perfil",
+                ["🔍 Todos juntos"] + [f"@{p}" for p in st.session_state["perfis_monitorados"]],
+                key="perfil_escolhido",
+            )
+        with col_perfil_btn:
+            st.markdown("<br>", unsafe_allow_html=True)
+            analisar_btn = st.button("🔍 Buscar virais", type="primary", use_container_width=True)
+
+        if analisar_btn:
+            from duckduckgo_search import DDGS
+
+            if perfil_escolhido == "🔍 Todos juntos":
+                perfis_busca = st.session_state["perfis_monitorados"]
+            else:
+                perfis_busca = [perfil_escolhido.lstrip("@")]
+
+            todos_resultados = []
+            with st.spinner("Buscando posts recentes dos perfis..."):
+                try:
+                    ddgs = DDGS()
+                    for perfil in perfis_busca:
+                        query = f"site:instagram.com/{perfil} OR @{perfil} instagram reels viral 2025"
+                        resultados = list(ddgs.text(query, max_results=5))
+                        for r in resultados:
+                            r["_perfil"] = perfil
+                        todos_resultados.extend(resultados)
+                    st.session_state["monitor_results"] = todos_resultados
+                    st.session_state["monitor_perfis"] = perfis_busca
+                except Exception as e:
+                    st.error(f"Erro na busca: {e}")
+
+        if "monitor_results" in st.session_state and st.session_state["monitor_results"]:
+            results = st.session_state["monitor_results"]
+            perfis_busca = st.session_state.get("monitor_perfis", [])
+
+            st.markdown(f"### Resultados — {len(results)} posts encontrados")
+            st.markdown("---")
+
+            perfil_atual = None
+            for item in results:
+                p = item.get("_perfil", "")
+                if p != perfil_atual:
+                    perfil_atual = p
+                    st.markdown(f"#### @{p}")
+
+                title = item.get("title", "Sem título")
+                body = item.get("body", "")
+                url = item.get("href", "#")
+                source = item.get("source", "")
+
+                col_t, col_l = st.columns([5, 1])
+                with col_t:
+                    st.markdown(f"**{title}**")
+                    if body:
+                        st.caption(body[:200] + ("..." if len(body) > 200 else ""))
+                with col_l:
+                    if url and url != "#":
+                        st.markdown(f"[🔗 Abrir]({url})")
+                st.markdown("---")
+
+            if anthropic_key:
+                if st.button("🤖 Claude analisa e sugere ideias para @lesganzerlla", type="primary", use_container_width=True, key="ai_monitor"):
+                    resumo_perfis = "\n".join(
+                        f"- @{item.get('_perfil','')}: {item.get('title','')} — {item.get('body','')[:100]}"
+                        for item in results[:15]
+                    )
+                    prompt_monitor = f"""Analise os posts recentes desses perfis do Instagram que estão em alta:
+
+{resumo_perfis}
+
+Identifique:
+1. Quais temas/formatos estão viralizando nesses perfis
+2. Padrões de gancho e estilo de conteúdo
+3. 5 ideias de Reels adaptadas para @lesganzerlla (clínica de emagrecimento em Ampére-PR, nicho de saúde/estética/emagrecimento)
+
+Para cada ideia: título, gancho dos 3 primeiros segundos, roteiro resumido, hashtags. Responda em português."""
+
+                    with st.spinner("Claude analisando os perfis..."):
+                        try:
+                            import anthropic as anth
+                            client = anth.Anthropic(api_key=anthropic_key)
+                            msg = client.messages.create(
+                                model="claude-haiku-4-5-20251001",
+                                max_tokens=1500,
+                                messages=[{"role": "user", "content": prompt_monitor}],
+                            )
+                            st.session_state["monitor_ai"] = msg.content[0].text
+                        except Exception as e:
+                            st.error(f"Erro: {e}")
+
+            if "monitor_ai" in st.session_state:
+                st.markdown("### 🤖 Ideias geradas pelo Claude")
+                st.markdown(st.session_state["monitor_ai"])
