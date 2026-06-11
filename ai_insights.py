@@ -148,3 +148,104 @@ Varie o tom: 1 mais motivacional, 1 mais educativo/prático, 1 mais pessoal/cone
         messages=[{"role": "user", "content": prompt}],
     )
     return response.content[0].text
+
+
+def analyze_viral_trends(api_key: str, tema: str, search_context: str, profile: dict) -> str:
+    username = profile.get("username", "lesganzerlla")
+    followers = profile.get("followers_count", "~12.500")
+
+    prompt = f"""Você é uma Estrategista Sênior de Marketing Digital especializada em crescimento no Instagram para o nicho de saúde, emagrecimento e estética feminina no Brasil. Tem 10 anos de experiência gerenciando perfis que cresceram de 0 a 1 milhão de seguidores.
+
+Seu trabalho agora: analisar o que está viralizando sobre "{tema}" no Instagram/TikTok e criar um plano de conteúdo estratégico para o perfil @{username} (clínica de emagrecimento e estética em Ampére-PR, {followers} seguidores).
+
+=== CONTEXTO DO QUE ESTÁ EM ALTA SOBRE "{tema}" ===
+{search_context}
+
+=== SUA ANÁLISE DEVE CONTER ===
+
+## 1. O que está viralizando agora
+- Quais formatos dominam (Reel curto, carrossel educativo, antes/depois, dia a dia, etc.)
+- Gatilhos emocionais mais usados (medo, esperança, curiosidade, pertencimento)
+- Padrões de gancho que estão funcionando
+
+## 2. Por que está viralizando (análise de marketing)
+- Explique o mecanismo psicológico por trás dos conteúdos em alta
+- O que o público realmente quer ver/sentir com esse tema
+
+## 3. Oportunidade para @{username}
+- Como a clínica pode se posicionar nessa tendência de forma autêntica
+- Ângulo diferenciado que poucos estão explorando
+
+## 4. Plano de 5 Reels prontos para produzir
+Para cada Reel:
+- **Título do vídeo**
+- **Gancho (primeiros 3 segundos)**: texto exato que abre o vídeo
+- **Roteiro resumido**: o que mostrar/falar em cada parte
+- **CTA final**: o que pedir para o seguidor fazer
+- **Hashtags**: 8-10 hashtags estratégicas
+
+## 5. Melhor momento para postar
+- Dia da semana e horário recomendado para esse tipo de conteúdo
+
+Seja específico, prático e orientado a resultados. Foco em conteúdo que gera salvamentos e compartilhamentos."""
+
+    client = _client(api_key)
+    response = client.messages.create(
+        model="claude-sonnet-4-6",
+        max_tokens=3000,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    return response.content[0].text
+
+
+def analyze_competitor_profiles(api_key: str, profiles_data: list[dict], profile: dict) -> str:
+    username = profile.get("username", "lesganzerlla")
+    followers = profile.get("followers_count", "~12.500")
+
+    perfis_resumo = "\n\n".join(
+        f"### @{p['handle']}\n" + "\n".join(f"- {t}" for t in p["titulos"])
+        for p in profiles_data if p.get("titulos")
+    )
+
+    prompt = f"""Você é uma Estrategista Sênior de Marketing Digital especializada em análise competitiva para Instagram no nicho de saúde e emagrecimento no Brasil.
+
+Perfil analisado: @{username} — clínica de emagrecimento e estética em Ampére-PR ({followers} seguidores)
+
+=== CONTEÚDO RECENTE DOS PERFIS MONITORADOS ===
+{perfis_resumo if perfis_resumo else "Dados limitados disponíveis — use seu conhecimento do nicho para complementar."}
+
+=== SUA ANÁLISE DEVE CONTER ===
+
+## 1. Padrões identificados nos perfis
+- Temas recorrentes que estão sendo explorados
+- Formatos de conteúdo mais usados
+- Tom de voz e posicionamento de cada perfil
+
+## 2. O que está funcionando (e por quê)
+- Conteúdos com maior potencial viral com base nos títulos/temas
+- Gatilhos de engajamento identificados
+
+## 3. Gaps e oportunidades
+- O que esses perfis NÃO estão fazendo que @{username} poderia fazer
+- Ângulos não explorados no nicho
+
+## 4. Plano de ação: 5 Reels para @{username} inspirados nesses perfis
+Para cada Reel:
+- **Conceito**: ideia central (adaptada para a realidade da clínica em Ampére-PR)
+- **Gancho (primeiros 3 segundos)**: texto exato
+- **Roteiro**: estrutura do vídeo
+- **Por que vai engajar**: mecanismo de marketing por trás
+- **Hashtags**: 8 hashtags estratégicas
+
+## 5. Estratégia de diferenciação
+- Como @{username} pode se destacar em relação a esses perfis
+
+Seja cirúrgico e prático. Foco em conteúdo replicável com recursos simples (câmera do celular, clínica, antes/depois)."""
+
+    client = _client(api_key)
+    response = client.messages.create(
+        model="claude-sonnet-4-6",
+        max_tokens=3000,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    return response.content[0].text
